@@ -24,7 +24,7 @@ class Flickr(private val listener: FlickrOauthListener) {
 
     interface FlickrOauthListener {
         fun requestToken(token: String)
-        fun authenticationSuccess(results:Boolean)
+        fun authenticationSuccess(results: Boolean)
         fun photoGalleries(galleries: Galleries)
         fun photoUrlList(urls: List<String>)
         fun onError(throwable: Throwable)
@@ -97,14 +97,14 @@ class Flickr(private val listener: FlickrOauthListener) {
     }
 
     fun uploadPhoto(path: String?) {
-path
+
         val file = File(URI(path))
         val requestFile: RequestBody = file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
         val body = MultipartBody.Part.createFormData("image", file.name, requestFile)
 
         FlickrRepository().uploadPhoto(body)
             .subscribeOn(Schedulers.io())
-            .subscribe({response ->
+            .subscribe({ response ->
 
                 response.body()
 

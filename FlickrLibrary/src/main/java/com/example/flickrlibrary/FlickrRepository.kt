@@ -32,10 +32,10 @@ class FlickrRepository {
     }
 
     fun getGalleryPhotos(galleryId: String): Single<Response<PhotoBase>> {
-       return RetrofitInstance().api.getGalleryPhotos(galleryId)
+        return RetrofitInstance().api.getGalleryPhotos(galleryId)
     }
 
-    fun uploadPhoto(body: MultipartBody.Part) :Single<Response<String>>{
+    fun uploadPhoto(body: MultipartBody.Part): Single<Response<String>> {
         return RetrofitInstance().api.uploadImage(body)
     }
 }

@@ -46,7 +46,7 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
 
 
             viewState.flickrGalleries?.gallery?.let { gallery ->
-               //Just for example of exposed data
+                //Just for example of exposed data
                 val title = gallery[0].title._content
                 val desc = gallery[0].description._content
 
