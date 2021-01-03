@@ -101,7 +101,7 @@ In order to get authorized first we need to pass a request token to the flickr s
     }
 ```
 
- Once user Authorizes the app they will be redirected back to the app with oauth_verifier data inside the intent. This will be used to exchange for a final oauth token and the app will finally be authorized to make calls to the rest services. inside the onResume() of your main activity.
+ Once the user Authorizes the app from the website they will be redirected back to the app with oauth_verifier data inside the intent. This will be used to exchange for a oauth token and the app will finally be authorized to make calls to the rest services. inside the onResume() of your main activity.
  
  ```
   override fun onResume() {
@@ -119,3 +119,38 @@ This callback will get called as soon as the app has an oauth token.
    	 }
     
  ```
+
+# Getting flickr photo galleries
+Once a user adds galleries to his/her account they can retrieve their saved galleries by calling:
+
+```
+	flickr.getPhotoGalleries()
+    
+ ```
+ the callback will recieve an object of Galleries that will contain all detailed information of a gallery (gallery Id ect...).
+ ```
+	override fun photoGalleries(galleries: Galleries) {
+         //Do something with the info here
+    }
+    
+ ```
+ 
+ # Getting the photos from the gallery
+ You have to have a gallery to get photos from it and you also need a gallery Id.
+ 
+ ```
+  	flickr.getGalleryPhotos(flickrGalId)
+  
+ ```
+ This will return a list of string photo urls inside the callback
+ 
+  ```
+  	 override fun photoUrlList(urls: List<String>) {
+        
+         //Do something with url list (Picasso ect...)
+    }
+  
+ ```
+   
+   # Important note
+   Create photo - file upload feature does not work ran into a FileNotFound bug
