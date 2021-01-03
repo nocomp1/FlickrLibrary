@@ -1,0 +1,3 @@
+include ':FlickrLibrary'
+include ':app'
+rootProject.name = "FlickrProject"
