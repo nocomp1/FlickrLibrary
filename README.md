@@ -18,7 +18,9 @@ Step 2. Add the dependency
 
 ```
 	dependencies {
-	        implementation 'com.github.nocomp1:FlickrLibrary:0.10'
+	
+	        implementation 'com.github.nocomp1:FlickrLibrary:1.12'
+		implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.3.0-rc01"
 	}
 ```
 
@@ -61,11 +63,11 @@ class FlickrLibraryExampleViewModel: ViewModel(), Flickr.FlickrOauthListener {
     //Initialize the listener
     private var flickr: Flickr = Flickr(this)
     
-    override fun authenticationSuccess(results: Boolean) {
+    override fun authenticationSuccess(results: AuthorizationResource) {
         TODO("Not yet implemented")
     }
 
-    override fun onError(throwable: Throwable) {
+    override fun onError(message: String?) {
         TODO("Not yet implemented")
     }
 
@@ -79,6 +81,10 @@ class FlickrLibraryExampleViewModel: ViewModel(), Flickr.FlickrOauthListener {
 
     override fun requestToken(token: String) {
         TODO("Not yet implemented")
+    }
+    
+     override fun loadingState(isLoading: Boolean) {
+         TODO("Not yet implemented")
     }
 }
 
@@ -114,8 +120,10 @@ In order to get authorized first we need to pass a request token to the flickr s
 This callback will get called as soon as the app has an oauth token.
 
  ```
-	override fun authenticationSuccess(results: Boolean) {
-     	       println(results)
+	override fun authenticationSuccess(results: AuthorizationResource) {
+     	 //This information can be saved and used later as many times as needed,
+     
+	       println(results)
    	 }
     
  ```
