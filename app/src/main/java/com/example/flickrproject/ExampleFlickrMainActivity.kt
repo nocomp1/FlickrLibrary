@@ -2,12 +2,16 @@ package com.example.flickrproject
 
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProviders
 import com.example.flickrproject.databinding.ActivityMainBinding
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 
 class ExampleFlickrMainActivity : AppCompatActivity() {
@@ -16,7 +20,6 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
     private lateinit var viewModel: ExampleFlickrViewModel
 
     private val SELECT_PICTURE = 1
-    private var selectedImagePath: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,8 +37,8 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
                 is ExampleFlickrViewModel.Events.IsUserAuthenticated -> {
                     showToast("Is user Auth = ${events.results}")
                 }
-                is ExampleFlickrViewModel.Events.onError -> {
-                    showToast(events.throwable.message.toString())
+                is ExampleFlickrViewModel.Events.OnError -> {
+                    showToast(events.message.toString())
                 }
             }
 
@@ -44,13 +47,14 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
 
         viewModel.viewState.observe(this, { viewState ->
 
+            binding.progress.isVisible = viewState.isLoading
 
             viewState.flickrGalleries?.gallery?.let { gallery ->
                 //Just for example of exposed data
                 val title = gallery[0].title._content
                 val desc = gallery[0].description._content
 
-                showToast("Title = $title, Description = $desc")
+                showToast("Galleries: Size= ${gallery.size} Title = $title, Description = $desc")
             }
 
             if (viewState.flickrGalleryPhotoUrls.isNotEmpty()) {
@@ -59,7 +63,7 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
                     urlStrings.append("URL ${index + 1} = $s")
                 }
 
-                showToast(urlStrings.toString())
+                showToast("Gallery Photo URLs: $urlStrings")
             }
 
 
@@ -112,12 +116,30 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode === RESULT_OK) {
             if (requestCode === SELECT_PICTURE) {
-                data?.data?.let {
-                    // val descriptor = contentResolver.openInputStream(it)
+                data?.data?.let { selectedImage ->
 
-                    val selectedImageURI: Uri = it
-                    val input = getContentResolver().openInputStream(selectedImageURI)
-                    val de = BitmapFactory.decodeStream(input)
+                    //Getting the file path from content - you must copy it and cache it
+                    val parcelFileDescriptor =
+                        contentResolver.openFileDescriptor(selectedImage, "r", null)
+                    var name = ""
+                    val cursor = contentResolver.query(selectedImage, null, null, null, null)
+                    cursor?.use {
+                        it.moveToFirst()
+                        name = cursor.getString(it.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+                    }
+                    //copy the file to the cache so we can send it
+                    val inputStream = FileInputStream(parcelFileDescriptor?.fileDescriptor)
+                    val file = File(cacheDir, name)
+                    val outputStream = FileOutputStream(file)
+                    inputStream.copyTo(outputStream)
+
+                    val bmOptions = BitmapFactory.Options()
+                    var bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), bmOptions)
+
+                    //send to flickr api to post it
+                    viewModel.onAction(ExampleFlickrViewModel.Action.UploadImageToFlickr(bitmap))
+                    binding.myImage.setImageBitmap(bitmap)
+
 
                 }
 
@@ -134,7 +156,7 @@ class ExampleFlickrMainActivity : AppCompatActivity() {
 
 
     private fun showToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
 }

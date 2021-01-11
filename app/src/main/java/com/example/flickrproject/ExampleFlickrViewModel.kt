@@ -1,11 +1,13 @@
 package com.example.flickrproject
 
 import android.content.Intent
+import android.graphics.Bitmap
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.example.flickrlibrary.Flickr
+import com.example.flickrlibrary.model.AuthorizationResource
 import com.example.flickrlibrary.model.Galleries
 
 class ExampleFlickrViewModel : ViewModel(), Flickr.FlickrOauthListener {
@@ -27,14 +29,19 @@ class ExampleFlickrViewModel : ViewModel(), Flickr.FlickrOauthListener {
 
     private val flickrGalleries = MutableLiveData<Galleries>()
         .also { _viewState.addSource(it) { combineLatest() } }
+
     private val isFlickrUserAuth = MutableLiveData<Boolean>()
+        .also { _viewState.addSource(it) { combineLatest() } }
+
+    private val flickrIsLoading = MutableLiveData<Boolean>()
         .also { _viewState.addSource(it) { combineLatest() } }
 
     private fun combineLatest() {
         ViewState(
-            flickrGalleries = flickrGalleries.value ?: null,
+            flickrGalleries = flickrGalleries.value,
             flickrGalleryPhotoUrls = flickrPhotoUrls.value ?: emptyList(),
-            isFlickrUserAuth = isFlickrUserAuth.value ?: false
+            isFlickrUserAuth = isFlickrUserAuth.value ?: false,
+            isLoading = flickrIsLoading.value ?: false
 
         ).apply { _viewState.value = copy() }
     }
@@ -42,8 +49,8 @@ class ExampleFlickrViewModel : ViewModel(), Flickr.FlickrOauthListener {
     data class ViewState(
         val flickrGalleryPhotoUrls: List<String>,
         val flickrGalleries: Galleries?,
-        val isFlickrUserAuth: Boolean
-
+        val isFlickrUserAuth: Boolean,
+        val isLoading: Boolean
     )
 
     sealed class Action {
@@ -51,18 +58,21 @@ class ExampleFlickrViewModel : ViewModel(), Flickr.FlickrOauthListener {
         object GetFlickrGalleries : Action()
         object GetFlickrGalleryPhotos : Action()
         data class GetOauthVerifier(val data: Intent) : Action()
+        data class UploadImageToFlickr(val image: Bitmap) : Action()
     }
 
     sealed class Events {
         data class RequestIntentForFlickrAuthPage(val flickerAuthPageIntent: Intent) : Events()
         data class IsUserAuthenticated(val results: Boolean) : Events()
-        data class onError(val throwable: Throwable) : Events()
+        data class OnError(val message: String?) : Events()
     }
 
 
     fun onAction(action: Action) {
         when (action) {
-            Action.AuthenticateFlickrUser -> flickr.authorizeUser()
+            Action.AuthenticateFlickrUser -> {
+                flickr.authorizeUser()
+            }
             Action.GetFlickrGalleries -> flickr.getPhotoGalleries()
             Action.GetFlickrGalleryPhotos -> {
 
@@ -71,19 +81,39 @@ class ExampleFlickrViewModel : ViewModel(), Flickr.FlickrOauthListener {
 
                 if (flickrGalId != null) {
                     flickr.getGalleryPhotos(flickrGalId)
+                } else {
+                    _events.postValue(Events.OnError("Please add a gallery to your account"))
                 }
             }
             is Action.GetOauthVerifier -> flickr.getOauthVerifier(action.data)
+            is Action.UploadImageToFlickr -> flickr.uploadPhoto(action.image)
         }
     }
 
 
-    override fun requestToken(token: String) {
-        _events.postValue(Events.RequestIntentForFlickrAuthPage(flickr.getFlickAuthPageIntent(token)))
+    override fun requestToken(token: String?) {
+        token?.let { tokenForIntent ->
+            _events.postValue(
+                Events.RequestIntentForFlickrAuthPage(
+                    flickr.getFlickAuthPageIntent(
+                        tokenForIntent
+                    )
+                )
+            )
+        }
+
     }
 
-    override fun authenticationSuccess(results: Boolean) {
-        _events.postValue(Events.IsUserAuthenticated(results))
+    override fun authenticationSuccess(results: AuthorizationResource) {
+
+        //Library already persist oauth_tokens but only until app is destroyed
+        //the AuthorizationResource can be use for storing in shared Prefs or other methods
+        //This information can be saved and used later as many times as needed,
+        // without re-asking user's authorisation. The user can at any time revoke
+        // the authorisation in her Flickr user account.
+
+        _events.postValue(Events.IsUserAuthenticated(results.isAuthorized))
+
     }
 
     override fun photoGalleries(galleries: Galleries) {
@@ -99,7 +129,12 @@ class ExampleFlickrViewModel : ViewModel(), Flickr.FlickrOauthListener {
         flickrPhotoUrls.postValue(urls)
     }
 
-    override fun onError(throwable: Throwable) {
-        _events.postValue(Events.onError(throwable))
+    override fun onError(message: String?) {
+        _events.postValue(Events.OnError(message))
+    }
+
+    override fun loadingState(isLoading: Boolean) {
+        flickrIsLoading.postValue(isLoading)
+
     }
 }

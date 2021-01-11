@@ -1,14 +1,24 @@
 package com.example.flickrlibrary
 
-import com.example.flickrlibrary.model.GalleryBase
-import com.example.flickrlibrary.model.PhotoBase
-import io.reactivex.Single
-import okhttp3.MultipartBody
-import retrofit2.Response
-import retrofit2.http.*
+import android.graphics.Bitmap
+import com.example.flickrlibrary.Constants.Companion.GET_GALLERY_LIST
+import com.example.flickrlibrary.Constants.Companion.GET_GALLERY_PHOTOS
+import com.example.flickrlibrary.Constants.Companion.HTTP_METHOD_GET
+import com.example.flickrlibrary.Constants.Companion.HTTP_METHOD_POST
+import com.example.flickrlibrary.Constants.Companion.OAUTH_TOKEN_KEY
+import com.example.flickrlibrary.Constants.Companion.OAUTH_TOKEN_SECRET_KEY
+import com.example.flickrlibrary.Constants.Companion.OAUTH_USERNAME_KEY
+import com.example.flickrlibrary.Constants.Companion.USER_NSID_KEY
+import com.example.flickrlibrary.model.AuthorizationResource
+import com.example.flickrlibrary.model.CallResource
+import com.example.flickrlibrary.model.CallResource.Failure
+import com.example.flickrlibrary.model.CallResource.Success
+import com.example.flickrlibrary.network.Request
+import com.example.flickrlibrary.utils.FlickrUtils
+import java.net.URL
 
 
-interface FlickrApi {
+class FlickrApi {
 
     //API Endpoints
     /**
@@ -18,42 +28,190 @@ interface FlickrApi {
      * the user to your application. This token, along with a
      * token secret, will later be exchanged for an Access Token.
      */
+    fun getRequestToken(url: String): CallResource {
 
-    @GET("oauth/request_token")
-    fun getRequestToken(
-        @Query("oauth_callback") oauthCallback: String,
-    ): Single<Response<String>>
+        val parameterString = FlickrUtils.getParameterStringForOAuth()
+
+        val oAuthSignature = FlickrUtils.createOauthSignature(parameterString, url, HTTP_METHOD_GET)
+        println(oAuthSignature)
+
+        // create URL
+        val finalUrl = URL("$url?$parameterString&oauth_signature=$oAuthSignature")
+
+        when (val resource = Request.makeGetRequest(finalUrl)) {
+
+            is Success -> {
+                resource.response?.let { result ->
+                    //save the token secret in memory for next step requesting access token
+                    //this token secret will now be apart of the signature
+                    FlickrToken.oAuthTokenSecret =
+                        FlickrUtils.extractResponseStringValue(result, OAUTH_TOKEN_SECRET_KEY)
+
+                }
+                return resource
+            }
+            is Failure -> {
+                return resource
+
+            }
+
+        }
+
+    }
 
     /**
-     * After the user authorizes your application, you can exchange
+     * Second step after the user authorizes the application, you can exchange
      * the approved Request Token for an Access Token. This Access Token
      * should be stored by your application, and used to make authorized
      * requests to Flickr.
      */
-
-    @GET("oauth/access_token/")
     fun getAccessToken(
-        @Query("oauth_verifier") oauthVerifier: String,
-    ): Single<Response<String>>
+        oAuthVerifier: String,
+        oAuthToken: String,
+        url: String
+    ): CallResource {
 
-    @GET("rest?nojsoncallback=1&format=json&method=flickr.galleries.getList")
-    fun getGalleries(
-        @Query("user_id", encoded = true) userNsId: String,
-    ): Single<Response<GalleryBase>>
+        val parameterString = FlickrUtils.getParameterStringForOAuth(oAuthToken, oAuthVerifier)
 
-    /**
-     * Return the list of photos for a gallery
-     */
-    @GET("rest?nojsoncallback=1&format=json&method=flickr.galleries.getPhotos")
-    fun getGalleryPhotos(
-        @Query("gallery_id", encoded = true) galleryId: String
-    ): Single<Response<PhotoBase>>
+        val oAuthSignature = FlickrUtils.createOauthSignature(parameterString, url, HTTP_METHOD_GET)
+        println(oAuthSignature)
 
-    /* New File upload and order creation methods */
-    @Multipart
-    @POST("upload/")
-    fun uploadImage(
-        @Part image: MultipartBody.Part
-    ): Single<Response<String>>
+        // create URL
+        val finalUrl = URL("$url?$parameterString&oauth_signature=$oAuthSignature")
+
+        when (val resource = Request.makeGetRequest(finalUrl)) {
+
+            is Success -> {
+                resource.response?.let { result ->
+                    //save credentials in memory and also just in case client side wants to
+                    // save credentials and oauth token in sharedPrefference we pass a
+                    // AuthorizationResource object
+
+                    //This information can be saved and used later as many times as needed,
+                    // without re-asking user's authorisation. The user can at any time revoke
+                    // the authorisation in her Flickr user account.
+                    FlickrToken.accessToken =
+                        FlickrUtils.extractResponseStringValue(result, OAUTH_TOKEN_KEY)
+                    FlickrToken.oAuthTokenSecret =
+                        FlickrUtils.extractResponseStringValue(result, OAUTH_TOKEN_SECRET_KEY)
+                    FlickrToken.nsId =
+                        FlickrUtils.extractResponseStringValue(result, USER_NSID_KEY)
+                    FlickrToken.username =
+                        FlickrUtils.extractResponseStringValue(result, OAUTH_USERNAME_KEY)
+
+                }
+                return Success(
+                    resource.response,
+                    AuthorizationResource(
+                        FlickrUtils.extractResponseStringValue(
+                            resource.response,
+                            OAUTH_TOKEN_KEY
+                        ),
+                        FlickrUtils.extractResponseStringValue(
+                            resource.response,
+                            OAUTH_TOKEN_SECRET_KEY
+                        ),
+                        FlickrUtils.extractResponseStringValue(resource.response, USER_NSID_KEY),
+                        FlickrUtils.extractResponseStringValue(
+                            resource.response,
+                            OAUTH_USERNAME_KEY
+                        ),
+                        true
+                    )
+                )
+            }
+            is Failure -> {
+                return resource
+
+            }
+
+        }
+
+    }
+
+    fun getGalleries(url: String): CallResource {
+        val parameterString = FlickrUtils.getParameterStringForRest(
+            FlickrToken.accessToken,
+            GET_GALLERY_LIST,
+            FlickrToken.nsId
+        )
+
+        val oAuthSignature = FlickrUtils.createOauthSignature(parameterString, url, HTTP_METHOD_GET)
+        println(oAuthSignature)
+
+        // create URL
+        val finalUrl = URL("$url?$parameterString&oauth_signature=$oAuthSignature")
+
+        return when (val resource = Request.makeGetRequest(finalUrl)) {
+
+            is Success -> {
+                resource
+            }
+            is Failure -> {
+                resource
+
+            }
+
+        }
+
+    }
+
+
+    fun getGalleryPhotos(url: String, galleryId: String?): CallResource {
+        val parameterString = FlickrUtils.getParameterStringForRest(
+            FlickrToken.accessToken,
+            GET_GALLERY_PHOTOS,
+            FlickrToken.nsId,
+            galleryId
+        )
+
+        val oAuthSignature = FlickrUtils.createOauthSignature(parameterString, url, HTTP_METHOD_GET)
+        println(oAuthSignature)
+
+        // create URL
+        val finalUrl = URL("$url?$parameterString&oauth_signature=$oAuthSignature")
+        return when (val resource = Request.makeGetRequest(finalUrl)) {
+
+            is Success -> {
+                resource
+            }
+            is Failure -> {
+                resource
+
+            }
+
+        }
+
+    }
+
+    fun upLoadImage(url: String, image: Bitmap): CallResource {
+        val parameterString = FlickrUtils.getParameterStringForRest(
+            FlickrToken.accessToken,
+            GET_GALLERY_LIST,
+            FlickrToken.nsId
+        )
+
+        val oAuthSignature =
+            FlickrUtils.createOauthSignature(parameterString, url, HTTP_METHOD_POST)
+        println(oAuthSignature)
+
+
+        // create URL
+        val finalUrl = URL("$url?$parameterString&photo=MyPhoto&oauth_signature=$oAuthSignature")
+
+        return when (val resource = Request.makePostImageRequest(finalUrl, image)) {
+
+            is Success -> {
+                resource
+            }
+            is Failure -> {
+                resource
+
+            }
+
+        }
+
+
+    }
 
 }

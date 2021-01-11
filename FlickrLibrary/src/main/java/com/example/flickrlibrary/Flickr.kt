@@ -1,36 +1,40 @@
 package com.example.flickrlibrary
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
+import com.example.flickrlibrary.Constants.Companion.ACCESS_TOKEN_PATH
 import com.example.flickrlibrary.Constants.Companion.BASE_URL
+import com.example.flickrlibrary.Constants.Companion.GET_GALLERY_REST_PATH
 import com.example.flickrlibrary.Constants.Companion.OAUTH_CALLBACK
 import com.example.flickrlibrary.Constants.Companion.OAUTH_TOKEN_KEY
-import com.example.flickrlibrary.Constants.Companion.OAUTH_TOKEN_SECRET_KEY
 import com.example.flickrlibrary.Constants.Companion.OAUTH_VERIFIER_KEY
 import com.example.flickrlibrary.Constants.Companion.REQUEST_AUTHORIZE_PATH
-import com.example.flickrlibrary.Constants.Companion.USER_NSID_KEY
-import com.example.flickrlibrary.model.Galleries
-import io.reactivex.disposables.CompositeDisposable
-import io.reactivex.schedulers.Schedulers
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import java.io.File
-import java.net.URI
+import com.example.flickrlibrary.Constants.Companion.REQUEST_TOKEN_PATH
+import com.example.flickrlibrary.Constants.Companion.UPLOAD_PHOTO_PATH
+import com.example.flickrlibrary.model.*
+import com.example.flickrlibrary.utils.FlickrUtils
+import com.google.gson.GsonBuilder
+import kotlinx.coroutines.*
 
 
-class Flickr(private val listener: FlickrOauthListener) {
+class Flickr(private val listener: FlickrOauthListener) : CoroutineScope {
+
+    private val flickRepository = FlickrRepository()
+
+    //Create coroutines job for this class
+    private val job = Job()
+
+    override val coroutineContext = job + Dispatchers.Main
 
     interface FlickrOauthListener {
-        fun requestToken(token: String)
-        fun authenticationSuccess(results: Boolean)
+        fun requestToken(token: String?)
+        fun authenticationSuccess(results: AuthorizationResource)
         fun photoGalleries(galleries: Galleries)
         fun photoUrlList(urls: List<String>)
-        fun onError(throwable: Throwable)
+        fun onError(message: String?)
+        fun loadingState(isLoading: Boolean)
     }
-
-    private val disposables = CompositeDisposable()
 
     fun getFlickAuthPageIntent(oauthToken: String): Intent {
 
@@ -41,127 +45,110 @@ class Flickr(private val listener: FlickrOauthListener) {
         )
     }
 
-    /**
-     * Return the list of galleries created by a user. Sorted from newest to oldest.
-     */
-    fun getPhotoGalleries() {
-
-        FlickrRepository().getGalleryList(
-            RetrofitInstance.nsId
-        )
-            .subscribeOn(Schedulers.io())
-            .subscribe({ galleryBase ->
-
-                galleryBase.body()
-                    ?.let { base -> listener.photoGalleries(base.galleries) }
-
-            }, {
-                listener.onError(it)
-
-            }).also { disposables.add(it) }
-    }
 
     /**
      *
      */
     fun getOauthVerifier(intent: Intent?) {
+
         intent?.data?.let { data ->
+
             val uri = data.toString()
+            println(uri)
+            val oauthToken = FlickrUtils.extractResponseStringValue(uri, OAUTH_TOKEN_KEY)
+            println(oauthToken)
+            val oauthVerifierToken = FlickrUtils.extractResponseStringValue(uri, OAUTH_VERIFIER_KEY)
+            println(oauthVerifierToken)
 
-            RetrofitInstance.oAuthToken = extractStringValue(uri, OAUTH_TOKEN_KEY)
+            launch {
+                val getAccessToken = async(Dispatchers.IO) {
 
-            val oauthVerifierToken = extractStringValue(uri, OAUTH_VERIFIER_KEY)
+                    listener.loadingState(true)
 
-            FlickrRepository().getAccessToken(oauthVerifierToken)
-                .subscribeOn(Schedulers.io())
-                .subscribe({
-                    it.body()
-                    it.errorBody()?.string()
+                    flickRepository.getAccessToken(
+                        oauthVerifierToken,
+                        oauthToken,
+                        BASE_URL + ACCESS_TOKEN_PATH
+                    )
+                }
 
-                    //update final access token and secret with the new response for next calls
-                    RetrofitInstance.oAuthToken =
-                        extractStringValue(it.body().toString(), OAUTH_TOKEN_KEY)
-                    RetrofitInstance.oAuthTokenSecret =
-                        extractStringValue(it.body().toString(), OAUTH_TOKEN_SECRET_KEY)
-                    RetrofitInstance.nsId = extractStringValue(it.body().toString(), USER_NSID_KEY)
+                when (val result = getAccessToken.await()) {
 
-                    listener.authenticationSuccess(true)
+                    is CallResource.Success -> {
+                        listener.loadingState(false)
+                        listener.authenticationSuccess(result.authResource)
+                    }
+                    is CallResource.Failure -> {
+                        listener.loadingState(false)
+                        listener.onError(result.errorMessage)
+                    }
+                }
 
-                }, {
-                    listener.authenticationSuccess(false)
-                    listener.onError(it)
-                })
-
+            }
         }
 
-    }
-
-    fun uploadPhoto(path: String?) {
-
-        val file = File(URI(path))
-        val requestFile: RequestBody = file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
-        val body = MultipartBody.Part.createFormData("image", file.name, requestFile)
-
-        FlickrRepository().uploadPhoto(body)
-            .subscribeOn(Schedulers.io())
-            .subscribe({ response ->
-
-                response.body()
-
-
-            }, {
-                println(it.message)
-
-            }).also { disposables.add(it) }
 
     }
 
     fun authorizeUser() {
-        FlickrRepository().getRequestToken()
-            .subscribeOn(Schedulers.io())
-            .subscribe({
-
-                it.body()?.let { response ->
-                    val oauthToken = extractStringValue(response, OAUTH_TOKEN_KEY)
-                    RetrofitInstance.oAuthTokenSecret =
-                        extractStringValue(response, OAUTH_TOKEN_SECRET_KEY)
-                    listener.requestToken(oauthToken)
-
+        launch {
+            val getRequestToken =
+                async(Dispatchers.IO) {
+                    listener.loadingState(true)
+                    flickRepository.getRequestToken(BASE_URL + REQUEST_TOKEN_PATH)
                 }
 
-            }, {
-                listener.onError(it)
+            when (val result = getRequestToken.await()) {
 
-            })
-            .also { disposables.add(it) }
+                is CallResource.Success -> {
+                    listener.loadingState(false)
+                    FlickrUtils.extractResponseStringValue(result.response, OAUTH_TOKEN_KEY)
+                    listener.requestToken(result.response)
+                }
+                is CallResource.Failure -> {
+                    listener.loadingState(false)
+                    listener.onError(result.errorMessage)
+                }
+            }
 
+        }
 
     }
 
-    private fun extractStringValue(stringResponse: String, key: String): String {
-        var counter = 0
-        val finalString = StringBuilder()
-        val finalValue = StringBuilder()
-        stringResponse.forEach { char ->
-            if (char == key[counter] && counter <= key.length) {
-                finalString.append(char)
-
-                if (finalString.length < key.length) {
-                    counter++
+    /**
+     * Return the list of galleries created by a user. Sorted from newest to oldest.
+     */
+    fun getPhotoGalleries() {
+        launch {
+            val getGalleries =
+                async(Dispatchers.IO) {
+                    listener.loadingState(true)
+                    flickRepository.getGalleries(BASE_URL + GET_GALLERY_REST_PATH)
                 }
 
-            } else if (finalString.toString() != key) {
-                counter = 0
-                finalString.clear()
+            when (val result = getGalleries.await()) {
+                is CallResource.Success -> {
+                    listener.loadingState(false)
+                    val gson = GsonBuilder().create()
+                    val galleryBase: GalleryBase = gson.fromJson(
+                        result.response,
+                        GalleryBase::class.java
+                    )
+                    if (galleryBase.galleries.gallery.isNotEmpty()) {
+
+                        listener.photoGalleries(galleryBase.galleries)
+                    } else {
+
+                        listener.onError("Please first add a gallery")
+                    }
+                }
+                is CallResource.Failure -> {
+                    listener.loadingState(false)
+                    listener.onError(result.errorMessage)
+                }
             }
 
-            if (finalString.length == key.length && char.toString() != "=" && char.toString() != "&") {
-                finalValue.append(char)
-                counter = 0
-            }
         }
-
-        return finalValue.toString()
     }
 
     /**
@@ -169,38 +156,95 @@ class Flickr(private val listener: FlickrOauthListener) {
      * Returns a list of photo urls for display to callback
      * [photoUrlList(urls: List<String>)]
      */
-    fun getGalleryPhotos(galleryId: String?): List<String> {
-        val photoUrls = mutableListOf<String>()
-        galleryId?.let { id ->
-            FlickrRepository().getGalleryPhotos(id)
-                .subscribeOn(Schedulers.io())
-                .subscribe({
+    fun getGalleryPhotos(galleryId: String?) {
+        launch {
+            val getGalleryPhotos =
+                async(Dispatchers.IO) {
+                    listener.loadingState(true)
+                    flickRepository.getGalleryPhotos(BASE_URL + GET_GALLERY_REST_PATH, galleryId)
 
-                    it.body()?.let { response ->
+                }
 
-                        response.photos.photo.forEach { photo ->
+            when (val result = getGalleryPhotos.await()) {
+                is CallResource.Success -> {
+                    listener.loadingState(false)
+
+                    val gson = GsonBuilder().create()
+                    val photoBase: PhotoBase = gson.fromJson(
+                        result.response,
+                        PhotoBase::class.java
+                    )
+                    val photoUrls = mutableListOf<String>()
+                    if (photoBase.photos.photo.isNotEmpty()) {
+
+                        photoBase.photos.photo.forEach { photo ->
                             val farmId = photo.farm
                             val serverId = photo.server
                             val photoId = photo.id
                             val secret = photo.secret
-                            val url =
+                            val photoUrl =
                                 "https://farm$farmId.staticflickr.com/$serverId/${photoId}_$secret.jpg"
 
-                            photoUrls.add(url)
+                            photoUrls.add(photoUrl)
                         }
 
                         listener.photoUrlList(photoUrls)
+                    } else {
+                        listener.loadingState(false)
+                        listener.onError("Please first add a gallery with photos to your account")
                     }
-
-                }, {
-                    listener.onError(it)
-
-                })
-                .also { disposables.add(it) }
-
+                }
+                is CallResource.Failure -> {
+                    listener.loadingState(false)
+                    listener.onError(result.errorMessage)
+                }
+            }
 
         }
-        return photoUrls
+
+    }
+
+    fun uploadPhoto(image: Bitmap) {
+        launch {
+            val postImage =
+                async(Dispatchers.IO) {
+                    listener.loadingState(true)
+                    flickRepository.uploadPhoto(BASE_URL + UPLOAD_PHOTO_PATH, image)
+                }
+
+            when (val result = postImage.await()) {
+
+                is CallResource.Success -> {
+                    listener.loadingState(false)
+                    //FlickrUtils.extractResponseStringValue(result.response, OAUTH_TOKEN_KEY)
+
+                }
+                is CallResource.Failure -> {
+                    listener.loadingState(false)
+                    //listener.onError(result.errorMessage)
+                }
+            }
+
+        }
+
+
+//
+//        val file = File(URI(path))
+//        val requestFile: RequestBody = file.asRequestBody("multipart/form-data".toMediaTypeOrNull())
+//        val body = MultipartBody.Part.createFormData("image", file.name, requestFile)
+//
+//        FlickrRepository().uploadPhoto(body)
+//            .subscribeOn(Schedulers.io())
+//            .subscribe({ response ->
+//
+//                response.body()
+//
+//
+//            }, {
+//                println(it.message)
+//
+//            }).also { disposables.add(it) }
+
     }
 
 }

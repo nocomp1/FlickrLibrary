@@ -1,42 +1,51 @@
 package com.example.flickrlibrary
 
-import com.example.flickrlibrary.Constants.Companion.OAUTH_CALLBACK
-import com.example.flickrlibrary.model.GalleryBase
-import com.example.flickrlibrary.model.PhotoBase
-import io.reactivex.Single
-import okhttp3.MultipartBody
-import retrofit2.Response
+import android.graphics.Bitmap
+import com.example.flickrlibrary.model.CallResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class FlickrRepository {
 
-    fun getRequestToken(): Single<Response<String>> {
-        return RetrofitInstance().api.getRequestToken(
-            OAUTH_CALLBACK
-        )
+    private val flickApi = FlickrApi()
+
+    suspend fun getRequestToken(url: String): CallResource {
+        return withContext(Dispatchers.Default) {
+            flickApi.getRequestToken(url)
+        }
+
     }
 
-    fun getAccessToken(
-        oauthVerifier: String,
-    ): Single<Response<String>> {
-        return RetrofitInstance().api.getAccessToken(
-            oauthVerifier,
-        )
+    suspend fun getGalleries(url: String): CallResource {
+        return withContext(Dispatchers.Default) {
+            flickApi.getGalleries(url)
+        }
+
     }
 
-    fun getGalleryList(
-        userNsId: String,
-    ): Single<Response<GalleryBase>> {
-        return RetrofitInstance().api.getGalleries(
-            userNsId
-        )
+    suspend fun getGalleryPhotos(url: String, galleryId: String?): CallResource {
+        return withContext(Dispatchers.Default) {
+            flickApi.getGalleryPhotos(url, galleryId)
+        }
+
     }
 
-    fun getGalleryPhotos(galleryId: String): Single<Response<PhotoBase>> {
-        return RetrofitInstance().api.getGalleryPhotos(galleryId)
+    suspend fun getAccessToken(
+        oauthVerifierToken: String,
+        oauthToken: String,
+        url: String
+    ): CallResource {
+        return withContext(Dispatchers.Default) {
+            flickApi.getAccessToken(oauthVerifierToken, oauthToken, url)
+        }
+
     }
 
-    fun uploadPhoto(body: MultipartBody.Part): Single<Response<String>> {
-        return RetrofitInstance().api.uploadImage(body)
+   suspend fun uploadPhoto(url: String,image :Bitmap) :CallResource{
+       return withContext(Dispatchers.Default) {
+           flickApi.upLoadImage(url,image)
     }
+
+}
 }
 
